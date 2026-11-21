@@ -11,6 +11,7 @@ import os
 import re
 import time
 import json
+import hashlib
 import random
 import threading
 import tkinter as tk
@@ -142,6 +143,7 @@ class HumanTyperApp(tk.Tk):
         self.completed_indices = set()
         self.is_typing = False
         self.stop_requested = False
+        self.resume_state = None
         self.progress_file = "typer_progress.json"
 
         self._init_style()
@@ -211,9 +213,9 @@ class HumanTyperApp(tk.Tk):
 
         # Slider WPM
         ttk.Label(cfg_frame, text="Tốc độ gõ:").grid(row=0, column=0, sticky=tk.W, padx=4)
-        self.scale_wpm = ttk.Scale(cfg_frame, from_=30, to=80, value=50, orient=tk.HORIZONTAL, command=self._update_cfg_labels)
+        self.scale_wpm = ttk.Scale(cfg_frame, from_=30, to=260, value=260, orient=tk.HORIZONTAL, command=self._update_cfg_labels)
         self.scale_wpm.grid(row=0, column=1, sticky=tk.EW, padx=4)
-        self.lbl_wpm_val = ttk.Label(cfg_frame, text="50 WPM")
+        self.lbl_wpm_val = ttk.Label(cfg_frame, text="260 WPM")
         self.lbl_wpm_val.grid(row=0, column=2, padx=4)
 
         # Slider Typo (tỉ lệ gõ sai và xoá sửa)
@@ -249,6 +251,15 @@ class HumanTyperApp(tk.Tk):
         )
         self.chk_snapshot_mode.grid(row=3, column=0, columnspan=6, sticky=tk.W, padx=4, pady=2)
 
+        # Gõ liên tục: bỏ các khoảng nghỉ và lỗi gõ mô phỏng
+        self.chk_continuous_var = tk.BooleanVar(value=False)
+        self.chk_continuous = ttk.Checkbutton(
+            cfg_frame,
+            text="Gõ liên tục (bỏ nghỉ và lỗi gõ mô phỏng)",
+            variable=self.chk_continuous_var
+        )
+        self.chk_continuous.grid(row=4, column=0, columnspan=6, sticky=tk.W, padx=4, pady=2)
+
         cfg_frame.columnconfigure(1, weight=1)
         cfg_frame.columnconfigure(4, weight=1)
 
@@ -263,6 +274,13 @@ class HumanTyperApp(tk.Tk):
         )
         self.btn_start.pack(side=tk.LEFT, padx=4)
 
+        self.btn_start_all = tk.Button(
+            ctrl_frame, text="GÕ TẤT CẢ", bg='#188038', fg='white',
+            font=('Segoe UI', 10, 'bold'), relief=tk.RAISED, padx=10, pady=6,
+            command=lambda: self._start_typing_thread(all_sections=True)
+        )
+        self.btn_start_all.pack(side=tk.LEFT, padx=4)
+
         self.btn_stop = tk.Button(
             ctrl_frame, text="⏹ DỪNG (ESC)", bg='#d93025', fg='white',
             font=('Segoe UI', 10, 'bold'), relief=tk.RAISED, padx=12, pady=6,
@@ -272,6 +290,13 @@ class HumanTyperApp(tk.Tk):
 
         self.lbl_status = ttk.Label(ctrl_frame, text="Sẵn sàng.", font=('Segoe UI', 10))
         self.lbl_status.pack(side=tk.LEFT, padx=14)
+
+        extra_frame = ttk.Frame(self, padding=(8, 0, 8, 4))
+        extra_frame.pack(fill=tk.X, padx=10)
+        self.btn_resume = ttk.Button(extra_frame, text="TI\u1ebeP T\u1ee4C T\u1eea CH\u1ed6 D\u1eeaNG", command=lambda: self._start_typing_thread(resume=True))
+        self.btn_resume.pack(side=tk.LEFT, padx=4)
+        self.btn_continuous_all = ttk.Button(extra_frame, text="G\u00d5 T\u1ea4T C\u1ea2 LI\u00caN T\u1ee4C", command=self._start_continuous_all)
+        self.btn_continuous_all.pack(side=tk.LEFT, padx=4)
 
         # Progress bar
         self.prog_bar = ttk.Progressbar(self, orient=tk.HORIZONTAL, mode='determinate')
@@ -354,13 +379,14 @@ class HumanTyperApp(tk.Tk):
                 with open(self.progress_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     self.completed_indices = set(data.get("completed_indices", []))
+                    self.resume_state = data.get("resume_state")
             except Exception:
                 pass
 
     def _save_progress(self):
         try:
             with open(self.progress_file, 'w', encoding='utf-8') as f:
-                json.dump({"completed_indices": list(self.completed_indices)}, f)
+                json.dump({"completed_indices": list(self.completed_indices), "resume_state": self.resume_state}, f)
         except Exception:
             pass
 
@@ -369,17 +395,58 @@ class HumanTyperApp(tk.Tk):
             self.stop_requested = True
             self.lbl_status.config(text="Đã gửi lệnh dừng. Đang dừng...", foreground='#d93025')
 
-    def _start_typing_thread(self):
+    def _start_continuous_all(self):
+        self.chk_continuous_var.set(True)
+        self._start_typing_thread(all_sections=True)
+
+    def _start_typing_thread(self, all_sections=False, resume=False):
         if self.is_typing:
             return
-        sel = self.listbox_sections.curselection()
-        if not sel:
-            messagebox.showwarning("Chưa chọn mục", "Vui lòng chọn 1 mục trong danh sách để gõ!")
-            return
+        if resume:
+            if not self.resume_state or not self.sections:
+                messagebox.showwarning("Ti\u1ebfp t\u1ee5c", "H\u00e3y n\u1ea1p l\u1ea1i file v\u00e0 d\u1eebng m\u1ed9t l\u1ea7n tr\u01b0\u1edbc khi ti\u1ebfp t\u1ee5c.")
+                return
+            indices = self.resume_state.get("indices", [])
+            if any(not isinstance(idx, int) or idx < 0 or idx >= len(self.sections) for idx in indices):
+                messagebox.showwarning("Ti\u1ebfp t\u1ee5c", "N\u1ed9i dung kh\u00f4ng kh\u1edbp v\u1edbi l\u1ea7n g\u00f5 tr\u01b0\u1edbc.")
+                return
+        elif all_sections:
+            if not self.sections:
+                messagebox.showwarning("Chưa nạp file", "Vui lòng nạp nội dung trước khi gõ!")
+                return
+            indices = list(range(len(self.sections)))
+        else:
+            sel = self.listbox_sections.curselection()
+            if not sel:
+                messagebox.showwarning("Chưa chọn mục", "Vui lòng chọn 1 mục trong danh sách để gõ!")
+                return
+            indices = [sel[0]]
 
-        selected_idx = sel[0]
-        _, raw_chunk = self.sections[selected_idx]
-        text_to_type = self._get_chunk_to_type(raw_chunk)
+        chunks = [(idx, self._get_chunk_to_type(self.sections[idx][1])) for idx in indices]
+        chunks = [(idx, chunk) for idx, chunk in chunks if chunk]
+        if not chunks:
+            messagebox.showwarning("Không có nội dung", "Không có nội dung để gõ!")
+            return
+        text_to_type = "\n\n".join(chunk for _, chunk in chunks)
+        section_ends = {}
+        position = 0
+        for idx, chunk in chunks:
+            position += len(chunk)
+            section_ends[position] = idx
+            position += 2
+
+        text_hash = hashlib.sha256(text_to_type.encode('utf-8')).hexdigest()
+        start_offset = 0
+        if resume:
+            if text_hash != self.resume_state.get("text_hash"):
+                messagebox.showwarning("Ti\u1ebfp t\u1ee5c", "N\u1ed9i dung ho\u1eb7c t\u00f9y ch\u1ecdn b\u1ecf ti\u00eau \u0111\u1ec1 \u0111\u00e3 thay \u0111\u1ed5i. H\u00e3y n\u1ea1p \u0111\u00fang n\u1ed9i dung v\u00e0 kh\u00f4i ph\u1ee5c t\u00f9y ch\u1ecdn c\u0169.")
+                return
+            start_offset = self.resume_state.get("offset", 0)
+            if not isinstance(start_offset, int) or not 0 <= start_offset < len(text_to_type):
+                messagebox.showwarning("Ti\u1ebfp t\u1ee5c", "Kh\u00f4ng c\u00f3 v\u1ecb tr\u00ed h\u1ee3p l\u1ec7 \u0111\u1ec3 ti\u1ebfp t\u1ee5c.")
+                return
+        self.resume_state = {"indices": indices, "text_hash": text_hash, "offset": start_offset}
+        self._save_progress()
 
         try:
             delay_sec = int(self.spn_delay.get())
@@ -389,19 +456,23 @@ class HumanTyperApp(tk.Tk):
         wpm = int(self.scale_wpm.get())
         typo_rate = self.scale_typo.get() / 100.0
         snapshot_mode = self.chk_snapshot_mode_var.get()
+        continuous_mode = self.chk_continuous_var.get()
 
         self.is_typing = True
         self.stop_requested = False
         self.btn_start.config(state=tk.DISABLED)
+        self.btn_start_all.config(state=tk.DISABLED)
+        self.btn_resume.config(state=tk.DISABLED)
+        self.btn_continuous_all.config(state=tk.DISABLED)
 
         t = threading.Thread(
             target=self._typing_worker,
-            args=(selected_idx, text_to_type, delay_sec, wpm, typo_rate, snapshot_mode),
+            args=(section_ends, text_to_type, delay_sec, wpm, typo_rate, snapshot_mode, continuous_mode, start_offset),
             daemon=True
         )
         t.start()
 
-    def _typing_worker(self, section_idx, text, delay_sec, wpm, typo_rate, snapshot_mode):
+    def _typing_worker(self, section_ends, text, delay_sec, wpm, typo_rate, snapshot_mode, continuous_mode, start_offset):
         # 1. Đếm ngược
         for s in range(delay_sec, 0, -1):
             if self.stop_requested or is_escape_pressed():
@@ -417,7 +488,7 @@ class HumanTyperApp(tk.Tk):
 
         total_chars = len(text)
         self.prog_bar['maximum'] = total_chars
-        self.prog_bar['value'] = 0
+        self.prog_bar['value'] = start_offset
 
         # Tính toán delay cơ bản theo WPM (1 từ ~ 5 ký tự)
         base_char_delay = 60.0 / (wpm * 5.0)
@@ -438,14 +509,15 @@ class HumanTyperApp(tk.Tk):
         word_counter = 0
         target_chunk_words = get_random_chunk_words()
 
-        for i, char in enumerate(text):
+        for i in range(start_offset, len(text)):
+            char = text[i]
             # Kiểm tra phím dừng khẩn cấp
             if self.stop_requested or is_escape_pressed():
                 self._finish_worker("Đã dừng khẩn cấp bởi người dùng (ESC).", False)
                 return
 
             # Giả lập gõ sai ngẫu nhiên (Typo)
-            if char.isalpha() and random.random() < typo_rate:
+            if not continuous_mode and char.isalpha() and random.random() < typo_rate:
                 # Gõ 1 ký tự sai ngẫu nhiên
                 wrong_char = chr(random.randint(97, 122))
                 send_unicode_char(wrong_char)
@@ -455,6 +527,11 @@ class HumanTyperApp(tk.Tk):
 
             # Gõ ký tự thật
             send_unicode_char(char)
+            self.resume_state["offset"] = i + 1
+
+            if i + 1 in section_ends:
+                self.completed_indices.add(section_ends[i + 1])
+                self._save_progress()
 
             # Đếm từ
             if char == ' ':
@@ -465,19 +542,19 @@ class HumanTyperApp(tk.Tk):
                 self.prog_bar['value'] = i + 1
                 percent = int(((i + 1) / total_chars) * 100)
                 self.lbl_status.config(
-                    text=f"✍️ Đang gõ mục [{section_idx+1}]: {i+1}/{total_chars} ký tự ({percent}%)"
+                    text=f"\u0110ang g\u00f5: {i+1}/{total_chars} k\u00fd t\u1ef1 ({percent}%)"
                 )
 
             # Tính toán độ trễ nhịp điệu người thật
             delay = max(0.02, random.gauss(base_char_delay, base_char_delay * 0.35))
 
-            if char in ('.', '!', '?'):
+            if not continuous_mode and char in ('.', '!', '?'):
                 # Nghỉ sau khi hết câu để nghĩ câu tiếp theo
                 delay = random.uniform(1.2, 3.2)
-            elif char in (',', ';', ':'):
+            elif not continuous_mode and char in (',', ';', ':'):
                 # Nghỉ nhẹ sau dấu phẩy
                 delay = random.uniform(0.4, 0.9)
-            elif char == '\n':
+            elif not continuous_mode and char == '\n':
                 # Xuống dòng / ngắt đoạn
                 delay = random.uniform(2.5, 5.5)
 
@@ -486,7 +563,7 @@ class HumanTyperApp(tk.Tk):
             is_sentence_end = (char in ('.', '!', '?')) and (i + 1 < total_chars and text[i+1] in (' ', '\n', '\r'))
             is_pause_point = (char == '\n') or is_sentence_end
 
-            if snapshot_mode and is_pause_point and word_counter >= target_chunk_words and i < total_chars - 30:
+            if not continuous_mode and snapshot_mode and is_pause_point and word_counter >= target_chunk_words and i < total_chars - 30:
                 word_counter = 0
                 target_chunk_words = get_random_chunk_words()
                 pause_duration = random.randint(55, 90)
@@ -505,7 +582,7 @@ class HumanTyperApp(tk.Tk):
                 continue
 
             # Đôi khi nghỉ tay đọc lại tài liệu (chỉ khi tắt snapshot_mode)
-            if not snapshot_mode and char == ' ':
+            if not continuous_mode and not snapshot_mode and char == ' ':
                 if word_counter > random.randint(40, 70):
                     word_counter = 0
                     if random.random() < 0.6:
@@ -514,14 +591,18 @@ class HumanTyperApp(tk.Tk):
             time.sleep(delay)
 
         # Hoàn thành mục này
-        self.completed_indices.add(section_idx)
-        self._save_progress()
-        self._finish_worker(f"🎉 Hoàn thành mục [{section_idx+1}] thành công!", True)
+        self._finish_worker("\u0110\u00e3 g\u00f5 xong n\u1ed9i dung \u0111\u00e3 ch\u1ecdn!", True)
 
     def _finish_worker(self, message, is_success):
         self.is_typing = False
         self.stop_requested = False
+        if is_success:
+            self.resume_state = None
+        self._save_progress()
         self.btn_start.config(state=tk.NORMAL)
+        self.btn_start_all.config(state=tk.NORMAL)
+        self.btn_resume.config(state=tk.NORMAL)
+        self.btn_continuous_all.config(state=tk.NORMAL)
         self.lbl_status.config(
             text=message,
             foreground='#1e8e3e' if is_success else '#d93025'
