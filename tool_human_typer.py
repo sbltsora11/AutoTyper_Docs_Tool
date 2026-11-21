@@ -1,4 +1,4 @@
-"""
+﻿"""
 ================================================================================
 TOOL TỰ ĐỘNG GÕ GOOGLE DOCS GIẢ LẬP NGƯỜI THẬT (CHIA THEO HEADING)
 Tác giả: Hỗ trợ sinh viên học phần Deep Learning (M03)
@@ -246,7 +246,7 @@ class HumanTyperApp(tk.Tk):
         self.chk_snapshot_mode_var = tk.BooleanVar(value=True)
         self.chk_snapshot_mode = ttk.Checkbutton(
             cfg_frame,
-            text="🕒 Tự động tách mốc Version History (Random 1–5 phút/mốc để Google Docs lưu mốc con)",
+            text="🕒 Tự động tách mốc Version History (Random 10–40 giây/mốc để Google Docs lưu mốc con)",
             variable=self.chk_snapshot_mode_var
         )
         self.chk_snapshot_mode.grid(row=3, column=0, columnspan=6, sticky=tk.W, padx=4, pady=2)
@@ -493,21 +493,8 @@ class HumanTyperApp(tk.Tk):
         # Tính toán delay cơ bản theo WPM (1 từ ~ 5 ký tự)
         base_char_delay = 60.0 / (wpm * 5.0)
 
-        def get_random_chunk_words():
-            # Random lượng từ gõ cho mỗi chặng để tạo khoảng cách ngẫu nhiên 1 - 5 phút:
-            # - Chặng ngắn (~20-35 từ): gõ ~30-40s + nghỉ ~55-70s  => Tổng ~1.5 - 2 phút
-            # - Chặng vừa  (~45-75 từ): gõ ~1-1.5m + nghỉ ~60-80s  => Tổng ~2.5 - 3.5 phút
-            # - Chặng dài  (~85-130 từ): gõ ~2-2.5m + nghỉ ~65-90s => Tổng ~4 - 5 phút
-            roll = random.random()
-            if roll < 0.35:
-                return random.randint(20, 35)
-            elif roll < 0.75:
-                return random.randint(45, 75)
-            else:
-                return random.randint(85, 130)
-
         word_counter = 0
-        target_chunk_words = get_random_chunk_words()
+        next_snapshot = time.monotonic() + random.uniform(10, 40)
 
         for i in range(start_offset, len(text)):
             char = text[i]
@@ -563,10 +550,9 @@ class HumanTyperApp(tk.Tk):
             is_sentence_end = (char in ('.', '!', '?')) and (i + 1 < total_chars and text[i+1] in (' ', '\n', '\r'))
             is_pause_point = (char == '\n') or is_sentence_end
 
-            if not continuous_mode and snapshot_mode and is_pause_point and word_counter >= target_chunk_words and i < total_chars - 30:
+            if not continuous_mode and snapshot_mode and is_pause_point and time.monotonic() >= next_snapshot and i < total_chars - 30:
                 word_counter = 0
-                target_chunk_words = get_random_chunk_words()
-                pause_duration = random.randint(55, 90)
+                pause_duration = random.randint(10, 30)
 
                 for remaining in range(pause_duration, 0, -1):
                     if self.stop_requested or is_escape_pressed():
@@ -578,6 +564,7 @@ class HumanTyperApp(tk.Tk):
                     )
                     time.sleep(1.0)
 
+                next_snapshot = time.monotonic() + random.uniform(10, 40)
                 self.lbl_status.config(text="✍️ Hết giờ nghỉ! Đang gõ tiếp...", foreground='#1a73e8')
                 continue
 
@@ -619,3 +606,4 @@ class HumanTyperApp(tk.Tk):
 if __name__ == '__main__':
     app = HumanTyperApp()
     app.mainloop()
+
