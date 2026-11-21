@@ -603,7 +603,37 @@ class HumanTyperApp(tk.Tk):
                 pass
 
 
+def require_license():
+    from licensing import load_state, check_active, activate
+    from pathlib import Path
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        state = load_state()
+        if check_active(state):
+            return True
+        messagebox.showinfo('Kích hoạt bản quyền', 'Chọn file bản quyền để kích hoạt. File sẽ bị xóa sau khi kích hoạt thành công.', parent=root)
+        selected = filedialog.askopenfilename(title='Chọn file bản quyền', filetypes=[('File bản quyền', '*.license'), ('Tất cả', '*.*')], parent=root)
+        if not selected:
+            return False
+        path = Path(selected)
+        activate(path.read_bytes(), state)
+        try:
+            path.unlink()
+        except OSError as exc:
+            messagebox.showwarning('Kích hoạt thành công', 'Đã kích hoạt nhưng không thể xóa file bản quyền. Hãy tự xóa file này.\n' + str(exc), parent=root)
+        else:
+            messagebox.showinfo('Kích hoạt thành công', 'Đã kích hoạt và xóa file bản quyền.', parent=root)
+        return True
+    except Exception as exc:
+        messagebox.showerror('Bản quyền', str(exc), parent=root)
+        return False
+    finally:
+        root.destroy()
+
+
 if __name__ == '__main__':
-    app = HumanTyperApp()
-    app.mainloop()
+    if require_license():
+        app = HumanTyperApp()
+        app.mainloop()
 

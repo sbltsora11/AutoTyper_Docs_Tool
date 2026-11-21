@@ -5,7 +5,7 @@ a = Analysis(
     ['tool_human_typer.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('license_public_key.pem', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -36,3 +36,4 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
+

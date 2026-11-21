@@ -21,3 +21,6 @@ Desktop.ini
 
 # Local typing progress
 typer_progress.json
+
+license_private_key.pem
+*.license

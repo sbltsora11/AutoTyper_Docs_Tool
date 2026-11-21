@@ -50,5 +50,12 @@ Xem chi tiết tại: [HUONG_DAN_SU_DUNG.md](HUONG_DAN_SU_DUNG.md)
 ---
 
 ## 🛠️ Công Nghệ Sử Dụng
-- **Ngôn ngữ**: Python 3 (100% standard libraries: `tkinter`, `ctypes`, `threading`, `json`).
+- **Ngôn ngữ**: Python 3 và thư viện `cryptography`.
 - **Nền tảng**: Windows 10 / 11.
+## Bản quyền ngoại tuyến
+
+Cài phụ thuộc bằng `python -m pip install -r requirements.txt`. Dùng `python license_generator.py` để tạo file bản quyền với số ngày mong muốn. Khách nạp file khi mở ứng dụng; thời hạn bắt đầu từ lúc kích hoạt. Sau khi kích hoạt thành công, ứng dụng xóa file đã chọn và lưu trạng thái trong `%LOCALAPPDATA%\AutoTyperDocs`.
+
+Giữ `license_private_key.pem` bí mật và sao lưu an toàn; không đưa khóa riêng cho khách. Mất khóa cần phát hành lại ứng dụng với khóa công khai mới. Đóng gói ứng dụng bằng `pyinstaller AutoTyper_Docs_10-30s.spec` và công cụ cấp bằng `pyinstaller TaoBanQuyen.spec`.
+
+Bản quyền ngoại tuyến không ngăn được việc sao chép file trước khi kích hoạt, đặt lại dữ liệu hoặc sửa chương trình. Thay đổi định danh máy hay tài khoản Windows có thể khiến trạng thái kích hoạt không còn sử dụng được.
